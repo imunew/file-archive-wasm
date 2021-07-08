@@ -1,0 +1,120 @@
+<!doctype html>
+<!--
+Copyright 2018 The Go Authors. All rights reserved.
+Use of this source code is governed by a BSD-style
+license that can be found in the LICENSE file.
+-->
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<title>Go wasm</title>
+	<style>
+		#archive-form {
+			margin: 10vw 15vw;
+		}
+		div.row {
+			margin-top: 16px;
+		}
+		div.row label {
+			display: block;
+		}
+		div.form-control {
+			margin-top: 8px;
+			margin-left: 1rem;
+		}
+		input[type="file"] {
+			width: 100%;
+		}
+	</style>
+</head>
+
+<body>
+	<section id="archive-form">
+		<div class="row">
+			<label>1. Select files</label>
+			<div class="form-control">
+				<input type="file" id="src-file" multiple onchange="hideDownloadLink()">
+			</div>
+		</div>
+		<div class="row">
+			<label>2. Zip Archive</label>
+			<div class="form-control">
+				<button onClick="onClickArchiveButton();" id="archive-button" disabled>Archive</button>
+			</div>
+		</div>
+		<div id="download-link" class="row">
+			<label>3. Download zip file</label>
+			<div class="form-control">
+				<a href="#" id="download-zip" download="archive.zip">archive</a>
+			</div>
+		</div>
+	</section>
+	<!--
+	Add the following polyfill for Microsoft Edge 17/18 support:
+	<script src="https://cdn.jsdelivr.net/npm/text-encoding@0.7.0/lib/encoding.min.js"></script>
+	(see https://caniuse.com/#feat=textencoder)
+	-->
+	<script src="wasm_exec.js"></script>
+	<script>
+		if (!WebAssembly.instantiateStreaming) { // polyfill
+			WebAssembly.instantiateStreaming = async (resp, importObject) => {
+				const source = await (await resp).arrayBuffer();
+				return await WebAssembly.instantiate(source, importObject);
+			};
+		}
+
+		const go = new Go();
+		let module, wasm;
+		WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject).then((result) => {
+			module = result.module;
+			wasm = result.instance;
+			enableArchiveButton();
+			hideDownloadLink();
+			go.run(wasm);
+		}).catch((err) => {
+			console.error(err);
+		});
+
+		function onClickArchiveButton() {
+			try {
+				const srcFile = document.getElementById('src-file');
+				const promises = Array.from(srcFile.files).map((file) => {
+					return new Promise((resolve, _) => {
+						const reader = new FileReader();
+						reader.addEventListener('load', () => {
+							resolve({
+								fileName: file.name,
+								lastModified: file.lastModified,
+								base64: reader.result.split('base64,')[1]
+							});
+						});
+						reader.readAsDataURL(file);
+					});
+				});
+				Promise.all(promises).then((data) => {
+					// console.info({ data });
+					archive(...data);
+					showDownloadLink();
+				});
+			} finally {
+				wasm = WebAssembly.instantiate(module, go.importObject); // reset instance
+			}
+		}
+
+		function enableArchiveButton() {
+			document.getElementById('archive-button').disabled = false;
+		}
+
+		function showDownloadLink() {
+			document.getElementById('download-link').style = undefined;
+		}
+
+		function hideDownloadLink() {
+			document.getElementById('download-link').style.display = 'none';
+		}
+	</script>
+
+</body>
+
+</html>
